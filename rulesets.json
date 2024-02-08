@@ -1,0 +1,16 @@
+{
+    "name": "super cool ruleset",
+    "target": "branch",
+    "enforcement": "active",
+    "conditions": {
+      "ref_name": {
+        "include": ["refs/heads/main", "refs/heads/master"],
+        "exclude": ["refs/heads/dev*"]
+      }
+    },
+    "rules":[
+    {
+        "type":"non_fast_forward"
+    }]
+  }
+
