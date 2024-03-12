@@ -1,0 +1,107 @@
+name: Rulesetes OPENSHIFT without release protection
+
+on:
+  workflow_dispatch:
+
+jobs:
+  Rulesetes-Protection:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+      
+      - id: read-json-rules
+        run: echo "RULESETS=$(jq -c . < ./ruleset_main_develop.json)" >> $GITHUB_OUTPUT
+      
+
+      - name: Set protection rules on selected repositories
+        run: |
+          repo_names=$(jq -r '.repositories[].repo_name' repositories.json) && echo $repo_names
+          owner=$(jq -r '.owner' repositories.json) && echo $owner
+          count=0
+          
+          for u in $repo_names
+          do
+          count=$((count + 1))
+          echo " "
+          echo "injection nro $count"
+          echo "creando rulesets en repositorio $u"
+
+                    API_VERSION="2022-11-28"
+
+           
+          # Obtener todos los rulesets del repositorio
+          RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.GH_PAT }}" -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/$owner/$u/rulesets")
+          RULESET_NAME="Release Ruleset to BICE Org"
+          # Buscar el ID del ruleset con el nombre especificado
+          RULESET_ID=$(echo $RESPONSE | jq -r ".[] | select(.name == \"$RULESET_NAME\") | .id")
+           
+          # Imprimir el ID del ruleset
+          echo "El ID del ruleset \"$RULESET_NAME\" es: $RULESET_ID"
+
+          curl -L \
+          -X DELETE \
+          -H "Accept: application/vnd.github.v3+json" \
+          -H "Authorization: Bearer ${{ secrets.GH_PAT }}" \
+          -H "X-GitHub-Api-Version: $API_VERSION" \
+          "https://api.github.com/repos/$owner/$u/rulesets/$RULESET_ID"
+
+          project_names=$(echo "$u" | sed 's/-.*//')
+          
+          echo "ruleset main and develop"
+          
+          curl -s -L \
+          -X POST \
+          -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer ${{ secrets.GH_PAT }}" \
+          -H "X-GitHub-Api-Version: 2022-11-28" \
+          https://api.github.com/repos/$owner/$u/rulesets \
+          -d '${{ steps.read-json-rules.outputs.RULESETS }}' | jq -r '._links.html.href'
+
+          TEAM_ID=$(curl -s -X GET \
+          -H "Accept: application/vnd.github.v3+json" \
+          -H "Authorization: Bearer ${{ secrets.GH_PAT }}" \
+          "https://api.github.com/orgs/BancoBice/teams/bitbucket-$project_names-tl" | jq -r '.id')
+
+
+
+          echo "ruleset feacture"
+
+          curl -s -L \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.GH_PAT }}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            https://api.github.com/repos/$owner/$u/rulesets \
+            -d '{
+              "name": "Feature Ruleset to BICE Org",
+              "target": "branch",
+              "source_type": "Organization",
+              "enforcement": "active",
+              "conditions": {
+                  "ref_name": {
+                      "include": [
+                          "refs/heads/feature",
+                          "refs/heads/feature/*"
+                      ],
+                      "exclude": []
+                  }
+              },
+              "bypass_actors": [
+                  {
+                      "actor_id": '"$TEAM_ID"',
+                      "actor_type": "Team",
+                      "bypass_mode": "always"
+                  }
+              ],
+              "rules": [
+                  {
+                      "type": "commit_message_pattern",
+                      "parameters": {
+                          "operator": "starts_with",
+                          "pattern": "AB#"
+                      }
+                  }
+              ]
+          }' | jq -r '._links.html.href'
+          done
